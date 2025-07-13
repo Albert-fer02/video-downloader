@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Script universal para descargar videos de múltiples plataformas
 # Soporta: TikTok, YouTube, Instagram, Twitter, Facebook, y más
 # Uso: download-video "URL"
@@ -96,22 +96,22 @@ done
 PLATFORM="unknown"
 if [[ "$URL" =~ tiktok\.com ]]; then
     PLATFORM="TikTok"
-    OUTPUT_DIR="~/Descargas/Videos/TikTok"
+    OUTPUT_DIR="${CUSTOM_OUTPUT_DIR:-~/Descargas/Videos/TikTok}"
 elif [[ "$URL" =~ (youtube\.com|youtu\.be) ]]; then
     PLATFORM="YouTube"
-    OUTPUT_DIR="~/Descargas/Videos/YouTube"
+    OUTPUT_DIR="${CUSTOM_OUTPUT_DIR:-~/Descargas/Videos/YouTube}"
 elif [[ "$URL" =~ instagram\.com ]]; then
     PLATFORM="Instagram"
-    OUTPUT_DIR="~/Descargas/Videos/Instagram"
+    OUTPUT_DIR="${CUSTOM_OUTPUT_DIR:-~/Descargas/Videos/Instagram}"
 elif [[ "$URL" =~ (twitter\.com|x\.com) ]]; then
     PLATFORM="Twitter"
-    OUTPUT_DIR="~/Descargas/Videos/Twitter"
+    OUTPUT_DIR="${CUSTOM_OUTPUT_DIR:-~/Descargas/Videos/Twitter}"
 elif [[ "$URL" =~ facebook\.com ]]; then
     PLATFORM="Facebook"
-    OUTPUT_DIR="~/Descargas/Videos/Facebook"
+    OUTPUT_DIR="${CUSTOM_OUTPUT_DIR:-~/Descargas/Videos/Facebook}"
 else
     PLATFORM="Otros"
-    OUTPUT_DIR="~/Descargas/Videos/Otros"
+    OUTPUT_DIR="${CUSTOM_OUTPUT_DIR:-~/Descargas/Videos/Otros}"
 fi
 
 echo -e "${BLUE}🎬 Descargador Universal de Videos${NC}"

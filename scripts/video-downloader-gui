@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Interfaz Gráfica para el Descargador Universal de Videos v3.0
 # Usa Zenity para crear una interfaz amigable
 # Autor: DreamCoder08
@@ -17,7 +17,6 @@ TEMP_DIR="$HOME/.cache/video-downloader"
 source "$CONFIG_DIR/config.conf" 2>/dev/null || true
 
 # Crear directorios necesarios
-mkdir -p "$CONFIG_DIR" "$ICON_DIR" "$TEMP_DIR"
 
 # Colores para la terminal (si se usa desde línea de comandos)
 RED='\033[0;31m'
@@ -743,6 +742,7 @@ show_about_dialog() {
 
 # Función principal
 main() {
+    mkdir -p "$CONFIG_DIR" "$ICON_DIR" "$TEMP_DIR" "$CONFIG_DIR/logs" "$CONFIG_DIR/backups" "$DOWNLOAD_DIR"
     # Verificar dependencias
     check_dependencies
     
@@ -750,7 +750,6 @@ main() {
     setup_icons
     
     # Crear directorios necesarios
-    mkdir -p "$DOWNLOAD_DIR" "$TEMP_DIR" "$CONFIG_DIR/logs" "$CONFIG_DIR/backups"
     
     # Mostrar ventana principal
     show_main_window
