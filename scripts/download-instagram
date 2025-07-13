@@ -1,0 +1,45 @@
+#!/bin/bash
+# Script para descargar videos de Instagram de forma segura
+# Uso: download-instagram "URL"
+
+set -euo pipefail
+
+# Verificar que se proporcione una URL
+if [ $# -eq 0 ]; then
+    echo "❌ Error: Debes proporcionar una URL de Instagram"
+    echo "💡 Uso: download-instagram 'https://www.instagram.com/p/ID/' o 'https://www.instagram.com/reel/ID/'"
+    exit 1
+fi
+
+URL="$1"
+
+# Verificar que la URL sea de Instagram
+if [[ ! "$URL" =~ instagram\.com ]]; then
+    echo "❌ Error: La URL no parece ser de Instagram"
+    exit 1
+fi
+
+echo "📷 Descargando de Instagram..."
+echo "📋 URL: $URL"
+
+# Crear directorio específico para Instagram si no existe
+mkdir -p ~/Descargas/Videos/Instagram
+
+# Descargar con configuración específica para Instagram
+yt-dlp \
+    --output "~/Descargas/Videos/Instagram/%(uploader)s_%(upload_date)s_%(title)s.%(ext)s" \
+    --format "best" \
+    --write-info-json \
+    --write-thumbnail \
+    --embed-metadata \
+    --restrict-filenames \
+    --no-overwrites \
+    --cookies-from-browser firefox \
+    "$URL"
+
+echo "✅ ¡Descarga completada! Los archivos están en ~/Descargas/Videos/Instagram/"
+
+# Mostrar archivos descargados
+echo "📁 Archivos descargados:"
+ls -la ~/Descargas/Videos/Instagram/ | tail -5
+

@@ -1,0 +1,86 @@
+#!/bin/bash
+# Script para descargar videos de YouTube de forma segura
+# Uso: download-youtube "URL"
+
+set -euo pipefail
+
+# Verificar que se proporcione una URL
+if [ $# -eq 0 ]; then
+    echo "❌ Error: Debes proporcionar una URL de YouTube"
+    echo "💡 Uso: download-youtube 'https://www.youtube.com/watch?v=ID' [formato]"
+    echo "💡 Formatos disponibles: video, audio, playlist"
+    exit 1
+fi
+
+URL="$1"
+FORMATO="${2:-video}"
+
+# Verificar que la URL sea de YouTube
+if [[ ! "$URL" =~ (youtube\.com|youtu\.be) ]]; then
+    echo "❌ Error: La URL no parece ser de YouTube"
+    exit 1
+fi
+
+echo "🎥 Descargando de YouTube..."
+echo "📋 URL: $URL"
+echo "🎯 Formato: $FORMATO"
+
+# Crear directorio específico para YouTube si no existe
+mkdir -p ~/Descargas/Videos/YouTube
+
+case "$FORMATO" in
+    "video")
+        echo "🎥 Descargando video..."
+        yt-dlp \
+            --output "~/Descargas/Videos/YouTube/%(uploader)s - %(title)s.%(ext)s" \
+            --format "best[height<=1080]/best" \
+            --write-info-json \
+            --write-thumbnail \
+            --write-subs \
+            --write-auto-subs \
+            --sub-langs "es,en" \
+            --embed-metadata \
+            --restrict-filenames \
+            --no-overwrites \
+            "$URL"
+        ;;
+    "audio")
+        echo "🎵 Descargando solo audio..."
+        yt-dlp \
+            --output "~/Descargas/Videos/YouTube/Audio/%(uploader)s - %(title)s.%(ext)s" \
+            --format "bestaudio/best" \
+            --extract-audio \
+            --audio-format mp3 \
+            --audio-quality 0 \
+            --write-info-json \
+            --write-thumbnail \
+            --embed-metadata \
+            --restrict-filenames \
+            --no-overwrites \
+            "$URL"
+        ;;
+    "playlist")
+        echo "📁 Descargando playlist..."
+        yt-dlp \
+            --output "~/Descargas/Videos/YouTube/Playlists/%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s" \
+            --format "best[height<=1080]/best" \
+            --write-info-json \
+            --write-thumbnail \
+            --embed-metadata \
+            --restrict-filenames \
+            --no-overwrites \
+            --yes-playlist \
+            "$URL"
+        ;;
+    *)
+        echo "❌ Error: Formato no válido. Usa: video, audio, o playlist"
+        exit 1
+        ;;
+esac
+
+echo "✅ ¡Descarga completada! Los archivos están en ~/Descargas/Videos/YouTube/"
+
+# Mostrar archivos descargados
+echo "📁 Archivos descargados recientemente:"
+find ~/Descargas/Videos/YouTube/ -type f -mmin -2 | head -10
+

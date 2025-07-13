@@ -1,0 +1,189 @@
+#!/bin/bash
+# Script universal para descargar videos de múltiples plataformas
+# Soporta: TikTok, YouTube, Instagram, Twitter, Facebook, y más
+# Uso: download-video "URL"
+
+set -euo pipefail
+
+# Colores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Función para mostrar ayuda
+show_help() {
+    echo -e "${BLUE}🎬 Descargador Universal de Videos v2.0${NC}"
+    echo -e "${BLUE}======================================${NC}"
+    echo ""
+    echo -e "${YELLOW}Uso:${NC}"
+    echo "  download-video 'URL' [opciones]"
+    echo ""
+    echo -e "${YELLOW}Plataformas soportadas:${NC}"
+    echo "  • TikTok (tiktok.com)"
+    echo "  • YouTube (youtube.com, youtu.be)"
+    echo "  • Instagram (instagram.com)"
+    echo "  • Twitter/X (twitter.com, x.com)"
+    echo "  • Facebook (facebook.com)"
+    echo "  • Reddit (reddit.com)"
+    echo "  • Y muchas más..."
+    echo ""
+    echo -e "${YELLOW}Opciones:${NC}"
+    echo "  -h, --help     Mostrar esta ayuda"
+    echo "  -i, --info     Solo mostrar información del video"
+    echo "  -a, --audio    Descargar solo audio"
+    echo "  -q, --quality  Especificar calidad (best, worst, 720p, 480p, etc.)"
+  -o, --output   Especificar directorio de salida
+    echo ""
+    echo -e "${YELLOW}Ejemplos:${NC}"
+    echo "  download-video 'https://www.tiktok.com/@user/video/123456'"
+    echo "  download-video 'https://youtu.be/abcd123' --audio"
+    echo "  download-video 'https://instagram.com/p/xyz/' --quality 720p"
+}
+
+# Verificar argumentos
+if [ $# -eq 0 ]; then
+    echo -e "${RED}❌ Error: Debes proporcionar una URL${NC}"
+    show_help
+    exit 1
+fi
+
+# Verificar si se solicita ayuda
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    show_help
+    exit 0
+fi
+
+URL="$1"
+shift # Remover URL de los argumentos
+
+# Variables por defecto
+INFO_ONLY=false
+AUDIO_ONLY=false
+QUALITY="best[height<=1080]/best"
+CUSTOM_OUTPUT_DIR=""
+
+# Procesar argumentos opcionales
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--info)
+            INFO_ONLY=true
+            shift
+            ;;
+        -a|--audio)
+            AUDIO_ONLY=true
+            QUALITY="bestaudio/best"
+            shift
+            ;;
+        -o|--output)
+            CUSTOM_OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        -q|--quality)
+            QUALITY="$2"
+            shift 2
+            ;;
+        *)
+            echo -e "${RED}❌ Error: Opción desconocida $1${NC}"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Detectar plataforma
+PLATFORM="unknown"
+if [[ "$URL" =~ tiktok\.com ]]; then
+    PLATFORM="TikTok"
+    OUTPUT_DIR="~/Descargas/Videos/TikTok"
+elif [[ "$URL" =~ (youtube\.com|youtu\.be) ]]; then
+    PLATFORM="YouTube"
+    OUTPUT_DIR="~/Descargas/Videos/YouTube"
+elif [[ "$URL" =~ instagram\.com ]]; then
+    PLATFORM="Instagram"
+    OUTPUT_DIR="~/Descargas/Videos/Instagram"
+elif [[ "$URL" =~ (twitter\.com|x\.com) ]]; then
+    PLATFORM="Twitter"
+    OUTPUT_DIR="~/Descargas/Videos/Twitter"
+elif [[ "$URL" =~ facebook\.com ]]; then
+    PLATFORM="Facebook"
+    OUTPUT_DIR="~/Descargas/Videos/Facebook"
+else
+    PLATFORM="Otros"
+    OUTPUT_DIR="~/Descargas/Videos/Otros"
+fi
+
+echo -e "${BLUE}🎬 Descargador Universal de Videos${NC}"
+echo -e "${BLUE}=================================${NC}"
+echo -e "${YELLOW}📱 Plataforma detectada:${NC} $PLATFORM"
+echo -e "${YELLOW}📋 URL:${NC} $URL"
+echo -e "${YELLOW}📁 Directorio:${NC} $OUTPUT_DIR"
+echo -e "${YELLOW}🎯 Calidad:${NC} $QUALITY"
+echo ""
+
+# Crear directorio si no existe
+mkdir -p "$OUTPUT_DIR"
+
+# Si solo se solicita información
+if [ "$INFO_ONLY" = true ]; then
+    echo -e "${BLUE}ℹ️ Obteniendo información del video...${NC}"
+    yt-dlp --no-download --print-json "$URL" | jq '{
+        title: .title,
+        uploader: .uploader,
+        duration: .duration,
+        view_count: .view_count,
+        upload_date: .upload_date,
+        formats: [.formats[] | select(.height != null) | {format_id, height, ext, filesize}]
+    }'
+    exit 0
+fi
+
+# Configurar parámetros según el tipo de descarga
+if [ "$AUDIO_ONLY" = true ]; then
+    echo -e "${GREEN}🎵 Descargando solo audio...${NC}"
+    OUTPUT_TEMPLATE="$OUTPUT_DIR/Audio/%(uploader)s - %(title)s.%(ext)s"
+    EXTRA_ARGS="--extract-audio --audio-format mp3 --audio-quality 0"
+else
+    echo -e "${GREEN}🎥 Descargando video...${NC}"
+    OUTPUT_TEMPLATE="$OUTPUT_DIR/%(uploader)s - %(title)s.%(ext)s"
+    EXTRA_ARGS=""
+fi
+
+# Ejecutar descarga
+echo -e "${BLUE}⏳ Iniciando descarga...${NC}"
+echo ""
+
+yt-dlp \
+    --output "$OUTPUT_TEMPLATE" \
+    --format "$QUALITY" \
+    --write-info-json \
+    --write-thumbnail \
+    --embed-metadata \
+    --restrict-filenames \
+    --no-overwrites \
+    --retries 3 \
+    --fragment-retries 3 \
+    --cookies-from-browser firefox \
+    $EXTRA_ARGS \
+    "$URL"
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo -e "${GREEN}✅ ¡Descarga completada exitosamente!${NC}"
+    echo -e "${YELLOW}📁 Archivos guardados en:${NC} $OUTPUT_DIR"
+    echo ""
+    echo -e "${BLUE}📋 Archivos descargados recientemente:${NC}"
+    find "$OUTPUT_DIR" -type f -mmin -2 2>/dev/null | head -5 | while read file; do
+        echo "  • $(basename "$file")"
+    done
+else
+    echo -e "${RED}❌ Error durante la descarga${NC}"
+    echo -e "${YELLOW}💡 Sugerencias:${NC}"
+    echo "  • Verifica que la URL sea correcta"
+    echo "  • Asegúrate de tener conexión a internet"
+    echo "  • Algunos videos pueden requerir estar logueado"
+    echo "  • Intenta con una calidad diferente usando --quality"
+    exit 1
+fi
+

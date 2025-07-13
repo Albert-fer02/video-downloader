@@ -1,0 +1,302 @@
+#!/bin/bash
+# Gestor de Colas de Descarga - Video Downloader v3.0
+# Autor: DreamCoder08
+
+set -euo pipefail
+
+# Configuración
+CONFIG_DIR="$HOME/.config/video-downloader"
+QUEUE_DIR="$CONFIG_DIR/queue"
+LOG_FILE="$CONFIG_DIR/logs/queue.log"
+LOCK_FILE="/tmp/download-queue.lock"
+PID_FILE="/tmp/download-queue.pid"
+
+# Colores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Cargar configuración
+source "$CONFIG_DIR/config.conf" 2>/dev/null || true
+
+# Funciones de logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+log_info() {
+    log "[INFO] $1"
+}
+
+log_error() {
+    log "[ERROR] $1"
+}
+
+log_success() {
+    log "[SUCCESS] $1"
+}
+
+# Función para enviar notificaciones
+notify() {
+    local title="$1"
+    local message="$2"
+    local icon="${3:-info}"
+    
+    if [[ "${NOTIFICATIONS_ENABLED:-true}" == "true" ]]; then
+        if command -v notify-send &> /dev/null; then
+            notify-send "$title" "$message" --icon="$icon" --urgency=normal
+        fi
+        
+        # Sonido de notificación
+        if [[ "${NOTIFICATIONS_SOUND:-true}" == "true" ]] && command -v paplay &> /dev/null; then
+            paplay /usr/share/sounds/freedesktop/stereo/message.oga 2>/dev/null &
+        fi
+    fi
+}
+
+# Función para agregar a la cola
+add_to_queue() {
+    local url="$1"
+    local quality="${2:-$DEFAULT_QUALITY}"
+    local output_dir="${3:-$DOWNLOAD_DIR}"
+    local extra_options="${4:-}"
+    
+    local queue_id=$(date +%s%N | cut -b1-13)
+    local queue_file="$QUEUE_DIR/queue_${queue_id}.json"
+    
+    # Crear archivo de cola en formato JSON
+    cat > "$queue_file" << EOF
+{
+  "id": "$queue_id",
+  "url": "$url",
+  "quality": "$quality",
+  "output_dir": "$output_dir",
+  "extra_options": "$extra_options",
+  "status": "pending",
+  "added_at": "$(date -Iseconds)",
+  "started_at": null,
+  "completed_at": null,
+  "error_message": null,
+  "retries": 0,
+  "priority": 1
+}
+EOF
+    
+    log_info "Añadido a la cola: $url (ID: $queue_id)"
+    notify "🎥 Cola de Descarga" "Video añadido a la cola: $queue_id" "list-add"
+    echo "$queue_id"
+}
+
+# Función para procesar la cola
+process_queue() {
+    if [[ -f "$LOCK_FILE" ]]; then
+        local pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            log_error "El procesador de cola ya está ejecutándose (PID: $pid)"
+            return 1
+        else
+            rm -f "$LOCK_FILE" "$PID_FILE"
+        fi
+    fi
+    
+    # Crear lock y guardar PID
+    echo $$ > "$PID_FILE"
+    touch "$LOCK_FILE"
+    
+    log_info "Iniciando procesador de cola"
+    
+    # Trap para limpiar al salir
+    trap 'rm -f "$LOCK_FILE" "$PID_FILE"; log_info "Procesador de cola detenido"' EXIT
+    
+    local max_concurrent=${MAX_CONCURRENT_DOWNLOADS:-3}
+    local active_downloads=0
+    
+    while true; do
+        # Buscar trabajos pendientes
+        local pending_jobs=($(find "$QUEUE_DIR" -name "queue_*.json" -exec jq -r 'select(.status == "pending") | .id' {} \; 2>/dev/null | sort))
+        
+        if [[ ${#pending_jobs[@]} -eq 0 ]]; then
+            if [[ $active_downloads -eq 0 ]]; then
+                log_info "No hay trabajos pendientes, esperando..."
+                sleep 10
+                continue
+            else
+                sleep 2
+                continue
+            fi
+        fi
+        
+        # Procesar trabajos si hay espacio
+        for job_id in "${pending_jobs[@]}"; do
+            if [[ $active_downloads -ge $max_concurrent ]]; then
+                break
+            fi
+            
+            process_single_job "$job_id" &
+            ((active_downloads++))
+            sleep 1
+        done
+        
+        # Limpiar procesos terminados
+        wait -n 2>/dev/null || true
+        ((active_downloads > 0)) && ((active_downloads--))
+        
+        sleep 2
+    done
+}
+
+# Función para procesar un trabajo individual
+process_single_job() {
+    local job_id="$1"
+    local queue_file="$QUEUE_DIR/queue_${job_id}.json"
+    
+    if [[ ! -f "$queue_file" ]]; then
+        log_error "Archivo de cola no encontrado: $queue_file"
+        return 1
+    fi
+    
+    # Leer datos del trabajo
+    local url=$(jq -r '.url' "$queue_file")
+    local quality=$(jq -r '.quality' "$queue_file")
+    local output_dir=$(jq -r '.output_dir' "$queue_file")
+    local extra_options=$(jq -r '.extra_options' "$queue_file")
+    
+    # Marcar como iniciado
+    jq '.status = "downloading" | .started_at = now | strftime("%Y-%m-%dT%H:%M:%S%z")' "$queue_file" > "${queue_file}.tmp" && mv "${queue_file}.tmp" "$queue_file"
+    
+    log_info "Iniciando descarga: $url (ID: $job_id)"
+    notify "📥 Descarga Iniciada" "Descargando: $(basename "$url")" "download"
+    
+    # Ejecutar descarga
+    local success=false
+    local error_msg=""
+    
+    if timeout 3600 "$HOME/.local/bin/download-video" "$url" --quality "$quality" --output "$output_dir" $extra_options 2>&1 | tee -a "$LOG_FILE"; then
+        success=true
+        log_success "Descarga completada: $url (ID: $job_id)"
+        notify "✅ Descarga Completada" "Video descargado exitosamente" "emblem-downloads"
+    else
+        error_msg="Error durante la descarga"
+        log_error "Error en descarga: $url (ID: $job_id) - $error_msg"
+        notify "❌ Error de Descarga" "Fallo al descargar: $(basename "$url")" "dialog-error"
+    fi
+    
+    # Actualizar estado
+    if [[ "$success" == "true" ]]; then
+        jq '.status = "completed" | .completed_at = now | strftime("%Y-%m-%dT%H:%M:%S%z")' "$queue_file" > "${queue_file}.tmp" && mv "${queue_file}.tmp" "$queue_file"
+        
+        # Mover a completados después de 1 hora
+        (sleep 3600 && mv "$queue_file" "$CONFIG_DIR/logs/completed_${job_id}.json" 2>/dev/null) &
+    else
+        local retries=$(jq -r '.retries' "$queue_file")
+        retries=$((retries + 1))
+        
+        if [[ $retries -lt ${RETRY_ATTEMPTS:-5} ]]; then
+            jq --arg err "$error_msg" --arg retries "$retries" '.status = "pending" | .error_message = $err | .retries = ($retries | tonumber)' "$queue_file" > "${queue_file}.tmp" && mv "${queue_file}.tmp" "$queue_file"
+            log_info "Reintentando descarga: $url (Intento $retries/${RETRY_ATTEMPTS:-5})"
+        else
+            jq --arg err "$error_msg" '.status = "failed" | .error_message = $err | .completed_at = now | strftime("%Y-%m-%dT%H:%M:%S%z")' "$queue_file" > "${queue_file}.tmp" && mv "${queue_file}.tmp" "$queue_file"
+            log_error "Descarga fallida definitivamente: $url (ID: $job_id)"
+        fi
+    fi
+}
+
+# Función para mostrar el estado de la cola
+show_queue_status() {
+    echo -e "${BLUE}📁 Estado de la Cola de Descarga${NC}"
+    echo -e "${BLUE}===============================${NC}"
+    echo ""
+    
+    local pending=$(find "$QUEUE_DIR" -name "queue_*.json" -exec jq -r 'select(.status == "pending")' {} \; 2>/dev/null | wc -l)
+    local downloading=$(find "$QUEUE_DIR" -name "queue_*.json" -exec jq -r 'select(.status == "downloading")' {} \; 2>/dev/null | wc -l)
+    local completed=$(find "$CONFIG_DIR/logs" -name "completed_*.json" 2>/dev/null | wc -l)
+    local failed=$(find "$QUEUE_DIR" -name "queue_*.json" -exec jq -r 'select(.status == "failed")' {} \; 2>/dev/null | wc -l)
+    
+    echo -e "${YELLOW}⏳ Pendientes:${NC} $pending"
+    echo -e "${BLUE}📥 Descargando:${NC} $downloading"
+    echo -e "${GREEN}✅ Completados:${NC} $completed"
+    echo -e "${RED}❌ Fallidos:${NC} $failed"
+    echo ""
+    
+    if [[ $pending -gt 0 ]] || [[ $downloading -gt 0 ]] || [[ $failed -gt 0 ]]; then
+        echo -e "${YELLOW}📋 Trabajos activos:${NC}"
+        find "$QUEUE_DIR" -name "queue_*.json" -exec jq -r 'select(.status != "completed") | "[ " + .status + " ] " + .id + ": " + (.url | split("/")[-1])' {} \; 2>/dev/null | head -10
+    fi
+}
+
+# Función para limpiar la cola
+clean_queue() {
+    local days=${1:-7}
+    
+    # Limpiar trabajos completados antiguos
+    find "$CONFIG_DIR/logs" -name "completed_*.json" -mtime +$days -delete 2>/dev/null
+    
+    # Limpiar trabajos fallidos antiguos
+    find "$QUEUE_DIR" -name "queue_*.json" -exec jq -r 'select(.status == "failed" and (.completed_at | fromdateiso8601) < (now - ('$days' * 86400)))' {} \; -delete 2>/dev/null
+    
+    log_info "Cola limpiada (archivos más antiguos de $days días)"
+}
+
+# Función principal
+main() {
+    # Crear directorios necesarios
+    mkdir -p "$QUEUE_DIR" "$CONFIG_DIR/logs"
+    
+    case "${1:-}" in
+        "add")
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: URL requerida${NC}"
+                echo "Uso: $0 add <URL> [calidad] [directorio] [opciones_extra]"
+                exit 1
+            fi
+            add_to_queue "$2" "${3:-}" "${4:-}" "${5:-}"
+            ;;
+        "start")
+            process_queue
+            ;;
+        "status")
+            show_queue_status
+            ;;
+        "clean")
+            clean_queue "${2:-7}"
+            ;;
+        "stop")
+            if [[ -f "$PID_FILE" ]]; then
+                local pid=$(cat "$PID_FILE")
+                if kill "$pid" 2>/dev/null; then
+                    log_info "Procesador de cola detenido (PID: $pid)"
+                    rm -f "$LOCK_FILE" "$PID_FILE"
+                else
+                    log_error "No se pudo detener el procesador de cola"
+                fi
+            else
+                echo "El procesador de cola no está ejecutándose"
+            fi
+            ;;
+        *)
+            echo -e "${BLUE}Gestor de Colas de Descarga v3.0${NC}"
+            echo ""
+            echo "Uso: $0 {add|start|status|clean|stop}"
+            echo ""
+            echo "Comandos:"
+            echo "  add <URL> [calidad] [dir] [opciones]  - Añadir video a la cola"
+            echo "  start                                 - Iniciar procesador de cola"
+            echo "  status                                - Mostrar estado de la cola"
+            echo "  clean [días]                          - Limpiar trabajos antiguos"
+            echo "  stop                                  - Detener procesador de cola"
+            echo ""
+            echo "Ejemplos:"
+            echo "  $0 add 'https://youtu.be/abc123'"
+            echo "  $0 add 'https://tiktok.com/@user/video/123' '720p'"
+            echo "  $0 start &  # Ejecutar en segundo plano"
+            echo "  $0 status"
+            ;;
+    esac
+}
+
+main "$@"
+

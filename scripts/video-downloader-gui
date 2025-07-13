@@ -1,0 +1,763 @@
+#!/bin/bash
+# Interfaz Gráfica para el Descargador Universal de Videos v3.0
+# Usa Zenity para crear una interfaz amigable
+# Autor: DreamCoder08
+
+set -euo pipefail
+# Forzar tema oscuro para Zenity y evitar advertencias de Adwaita
+export GTK_THEME=Adwaita:dark
+
+
+# Configuración
+CONFIG_DIR="$HOME/.config/video-downloader"
+ICON_DIR="$CONFIG_DIR/icons"
+TEMP_DIR="$HOME/.cache/video-downloader"
+
+# Cargar configuración
+source "$CONFIG_DIR/config.conf" 2>/dev/null || true
+
+# Crear directorios necesarios
+mkdir -p "$CONFIG_DIR" "$ICON_DIR" "$TEMP_DIR"
+
+# Colores para la terminal (si se usa desde línea de comandos)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Verificar dependencias
+check_dependencies() {
+    local missing_deps=()
+    
+    command -v zenity >/dev/null || missing_deps+=("zenity")
+    command -v yt-dlp >/dev/null || missing_deps+=("yt-dlp")
+    command -v jq >/dev/null || missing_deps+=("jq")
+    command -v notify-send >/dev/null || missing_deps+=("libnotify")
+    
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        zenity --error --title="Dependencias Faltantes" \
+               --text="Faltan las siguientes dependencias:\n\n$(printf '%s\n' "${missing_deps[@]}")\n\nEjecuta: sudo pacman -S ${missing_deps[*]}" \
+               --width=400
+        exit 1
+    fi
+}
+
+# Configurar iconos
+setup_icons() {
+    # Crear iconos simples si no existen
+    if [[ ! -f "$ICON_DIR/download.png" ]]; then
+        # Usar iconos del sistema si están disponibles
+        for icon_path in "/usr/share/icons/hicolor/48x48/apps/" "/usr/share/pixmaps/"; do
+            if [[ -f "${icon_path}download.png" ]]; then
+                cp "${icon_path}download.png" "$ICON_DIR/download.png"
+                break
+            fi
+        done
+    fi
+}
+
+# Función para mostrar notificaciones
+notify_gui() {
+    local title="$1"
+    local message="$2"
+    local icon="${3:-info}"
+    local urgency="${4:-normal}"
+    
+    notify-send "$title" "$message" --icon="$icon" --urgency="$urgency" 2>/dev/null || true
+}
+
+# Función para validar URL
+validate_url() {
+    local url="$1"
+    
+    # Verificaciones básicas
+    if [[ ! "$url" =~ ^https?:// ]]; then
+        return 1
+    fi
+    
+    # Verificar plataformas soportadas
+    if [[ "$url" =~ (youtube\.com|youtu\.be|tiktok\.com|instagram\.com|twitter\.com|x\.com|facebook\.com|reddit\.com|vimeo\.com|dailymotion\.com|twitch\.tv) ]]; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# Ventana principal
+show_main_window() {
+    while true; do
+        local choice
+        choice=$(zenity --list \
+                        --title="🎬 Descargador Universal de Videos v3.0" \
+                        --text="Selecciona una acción:" \
+                        --column="Acción" --column="Descripción" \
+                        --width=600 --height=400 \
+                        "Descargar Video" "Descargar un video individual" \
+                        "Descarga por Lotes" "Descargar múltiples videos" \
+                        "Administrar Cola" "Ver y gestionar la cola de descargas" \
+                        "Configuración" "Cambiar configuración del sistema" \
+                        "Estadísticas" "Ver estadísticas de descargas" \
+                        "Compartir Redes" "Compartir en redes sociales" \
+                        "Herramientas" "Herramientas adicionales" \
+                        "Acerca de" "Información sobre el programa" \
+                        "Salir" "Cerrar el programa" 2>/dev/null)
+        
+        case "$choice" in
+            "Descargar Video")
+                show_download_dialog
+                ;;
+            "Descarga por Lotes")
+                show_batch_download_dialog
+                ;;
+            "Administrar Cola")
+                show_queue_manager
+                ;;
+            "Configuración")
+                show_settings_dialog
+                ;;
+            "Estadísticas")
+                show_statistics
+                ;;
+            "Compartir Redes")
+                show_social_sharing
+                ;;
+            "Herramientas")
+                show_tools_menu
+                ;;
+            "Acerca de")
+                show_about_dialog
+                ;;
+            "Salir"|"")
+                exit 0
+                ;;
+        esac
+    done
+}
+
+# Diálogo de descarga individual
+show_download_dialog() {
+    local form_data
+    form_data=$(zenity --forms \
+                       --title="📥 Descargar Video" \
+                       --text="Configuración de descarga:" \
+                       --add-entry="URL del Video:" \
+                       --add-combo="Calidad:" \
+                       --combo-values="best|720p|480p|360p|audio" \
+                       --add-entry="Directorio (opcional):" \
+                       --add-combo="Acción:" \
+                       --combo-values="Descargar|Solo Info|Añadir a Cola" \
+                       --separator="|" \
+                       --width=500 2>/dev/null)
+    
+    if [[ -z "$form_data" ]]; then
+        return
+    fi
+    
+    IFS='|' read -r url quality custom_dir action <<< "$form_data"
+    
+    # Validar URL
+    if ! validate_url "$url"; then
+        zenity --error --title="URL Inválida" \
+               --text="La URL proporcionada no es válida o no está soportada.\n\nPlataformas soportadas:\n• YouTube\n• TikTok\n• Instagram\n• Twitter/X\n• Facebook\n• Y más..."
+        return
+    fi
+    
+    # Configurar directorio
+    local output_dir="${custom_dir:-$DOWNLOAD_DIR}"
+    
+    case "$action" in
+        "Descargar")
+            perform_download "$url" "$quality" "$output_dir"
+            ;;
+        "Solo Info")
+            show_video_info "$url"
+            ;;
+        "Añadir a Cola")
+            add_to_download_queue "$url" "$quality" "$output_dir"
+            ;;
+    esac
+}
+
+# Realizar descarga con progreso
+perform_download() {
+    local url="$1"
+    local quality="$2"
+    local output_dir="$3"
+    
+    # Definir temp_log fuera del subshell
+    local temp_log="$TEMP_DIR/download_$$.log"
+    
+    # Mostrar diálogo de progreso
+    (
+        echo "# Iniciando descarga..."
+        echo "10"
+        
+        echo "# Obteniendo información del video..."
+        echo "20"
+        
+        # Ejecutar descarga en segundo plano
+        "$HOME/.local/bin/download-video" "$url" --quality "$quality" --output "$output_dir" > "$temp_log" 2>&1 &
+        local download_pid=$!
+        
+        # Monitorear progreso
+        local progress=30
+        while kill -0 $download_pid 2>/dev/null; do
+            echo "# Descargando video... $progress%"
+            echo "$progress"
+            sleep 2
+            progress=$((progress + 5))
+            if [[ $progress -gt 90 ]]; then
+                progress=90
+            fi
+        done
+        
+        wait $download_pid
+        local exit_code=$?
+        
+        if [[ $exit_code -eq 0 ]]; then
+            echo "# ¡Descarga completada!"
+            echo "100"
+            notify_gui "✅ Descarga Completada" "Video descargado exitosamente" "emblem-downloads"
+        else
+            echo "# Error en la descarga"
+            echo "100"
+            notify_gui "❌ Error de Descarga" "Fallo al descargar el video" "dialog-error"
+        fi
+        
+        sleep 2
+    ) | zenity --progress \
+               --title="Descargando Video" \
+               --text="Procesando..." \
+               --width=400 \
+               --auto-close
+    
+    # Mostrar resultado
+    if [[ -f "$temp_log" ]]; then
+        if grep -q "ERROR" "$temp_log"; then
+            zenity --error --title="Error de Descarga" \
+                   --text="Ocurrió un error durante la descarga.\n\nRevisa los logs para más detalles."
+        else
+            zenity --info --title="Éxito" \
+                   --text="¡Video descargado exitosamente!\n\nUbicación: $output_dir"
+        fi
+#        rm -f "$temp_log"
+    fi
+}
+
+# Mostrar información del video
+show_video_info() {
+    local url="$1"
+    
+    # Obtener información
+    local info_file="$TEMP_DIR/video_info_$$.json"
+    
+    (
+        echo "# Obteniendo información del video..."
+        echo "50"
+        
+        yt-dlp --no-download --print-json "$url" > "$info_file" 2>/dev/null
+        
+        echo "# Procesando información..."
+        echo "100"
+        
+        sleep 1
+    ) | zenity --progress \
+               --title="Obteniendo Información" \
+               --text="Procesando..." \
+               --width=300 \
+               --auto-close
+    
+    if [[ -f "$info_file" ]] && [[ -s "$info_file" ]]; then
+        local title=$(jq -r '.title // "N/A"' "$info_file")
+        local uploader=$(jq -r '.uploader // "N/A"' "$info_file")
+        local duration=$(jq -r '.duration // "N/A"' "$info_file")
+        local view_count=$(jq -r '.view_count // "N/A"' "$info_file")
+        local upload_date=$(jq -r '.upload_date // "N/A"' "$info_file")
+        local description=$(jq -r '.description // "N/A"' "$info_file" | head -c 200)
+        
+        local info_text="Título: $title\n"
+        info_text+="Creador: $uploader\n"
+        info_text+="Duración: $duration segundos\n"
+        info_text+="Visualizaciones: $view_count\n"
+        info_text+="Fecha de subida: $upload_date\n\n"
+        info_text+="Descripción:\n$description..."
+        
+        zenity --info --title="📺 Información del Video" \
+               --text="$info_text" \
+               --width=500 --height=300
+        
+        rm -f "$info_file"
+    else
+        zenity --error --title="Error" \
+               --text="No se pudo obtener la información del video.\n\nVerifica que la URL sea correcta."
+    fi
+}
+
+# Añadir a cola de descarga
+add_to_download_queue() {
+    local url="$1"
+    local quality="$2"
+    local output_dir="$3"
+    
+    local queue_id
+    queue_id=$("$HOME/.local/bin/download-queue-manager" add "$url" "$quality" "$output_dir")
+    
+    zenity --info --title="📁 Añadido a la Cola" \
+           --text="Video añadido a la cola de descarga.\n\nID de cola: $queue_id\n\nPuedes gestionar la cola desde el menú principal."
+}
+
+# Descarga por lotes
+show_batch_download_dialog() {
+    local urls_text
+    urls_text=$(zenity --text-info \
+                       --title="📝 Descarga por Lotes" \
+                       --text="Ingresa las URLs (una por línea):" \
+                       --editable \
+                       --width=600 --height=400 2>/dev/null)
+    
+    if [[ -z "$urls_text" ]]; then
+        return
+    fi
+    
+    # Configuración adicional
+    local batch_config
+    batch_config=$(zenity --forms \
+                          --title="Configuración de Lote" \
+                          --text="Configuración para descarga por lotes:" \
+                          --add-combo="Calidad:" \
+                          --combo-values="best|720p|480p|360p|audio" \
+                          --add-entry="Directorio (opcional):" \
+                          --separator="|" \
+                          --width=400 2>/dev/null)
+    
+    if [[ -z "$batch_config" ]]; then
+        return
+    fi
+    
+    IFS='|' read -r quality custom_dir <<< "$batch_config"
+    local output_dir="${custom_dir:-$DOWNLOAD_DIR}"
+    
+    # Procesar URLs
+    local urls_array=()
+    while IFS= read -r line; do
+        line=$(echo "$line" | xargs)  # Trim whitespace
+        if [[ -n "$line" ]] && validate_url "$line"; then
+            urls_array+=("$line")
+        fi
+    done <<< "$urls_text"
+    
+    if [[ ${#urls_array[@]} -eq 0 ]]; then
+        zenity --error --title="Error" \
+               --text="No se encontraron URLs válidas."
+        return
+    fi
+    
+    # Confirmar descarga
+    if zenity --question \
+              --title="Confirmar Descarga por Lotes" \
+              --text="Se añadirán ${#urls_array[@]} videos a la cola de descarga.\n\n¿Continuar?" \
+              --width=300; then
+        
+        # Añadir todos a la cola
+        local added_count=0
+        for url in "${urls_array[@]}"; do
+            "$HOME/.local/bin/download-queue-manager" add "$url" "$quality" "$output_dir" >/dev/null
+            ((added_count++))
+        done
+        
+        zenity --info --title="Éxito" \
+               --text="$added_count videos añadidos a la cola de descarga.\n\nPuedes gestionar la cola desde el menú principal."
+    fi
+}
+
+# Gestor de cola
+show_queue_manager() {
+    while true; do
+        local choice
+        choice=$(zenity --list \
+                        --title="📁 Administrador de Cola" \
+                        --text="Gestiona la cola de descargas:" \
+                        --column="Acción" --column="Descripción" \
+                        --width=500 --height=300 \
+                        "Ver Estado" "Mostrar estado actual de la cola" \
+                        "Iniciar Cola" "Iniciar procesamiento de la cola" \
+                        "Detener Cola" "Detener procesamiento de la cola" \
+                        "Limpiar Cola" "Limpiar trabajos antiguos" \
+                        "Volver" "Regresar al menú principal" 2>/dev/null)
+        
+        case "$choice" in
+            "Ver Estado")
+                show_queue_status_gui
+                ;;
+            "Iniciar Cola")
+                start_queue_processing
+                ;;
+            "Detener Cola")
+                stop_queue_processing
+                ;;
+            "Limpiar Cola")
+                clean_queue_gui
+                ;;
+            "Volver"|"")
+                break
+                ;;
+        esac
+    done
+}
+
+# Mostrar estado de la cola en GUI
+show_queue_status_gui() {
+    local status_output
+    status_output=$("$HOME/.local/bin/download-queue-manager" status 2>/dev/null || echo "Error obteniendo estado")
+    
+    zenity --info --title="📁 Estado de la Cola" \
+           --text="$status_output" \
+           --width=500 --height=300
+}
+
+# Iniciar procesamiento de cola
+start_queue_processing() {
+    if zenity --question \
+              --title="Iniciar Cola" \
+              --text="¿Iniciar el procesamiento de la cola de descargas?\n\nEsto ejecutará las descargas pendientes en segundo plano." \
+              --width=300; then
+        
+        # Ejecutar en segundo plano
+        nohup "$HOME/.local/bin/download-queue-manager" start > /dev/null 2>&1 &
+        
+        notify_gui "🚀 Cola Iniciada" "El procesamiento de la cola ha comenzado"
+        zenity --info --title="Éxito" \
+               --text="Cola de descarga iniciada exitosamente.\n\nLas descargas se ejecutarán en segundo plano."
+    fi
+}
+
+# Detener procesamiento de cola
+stop_queue_processing() {
+    if zenity --question \
+              --title="Detener Cola" \
+              --text="¿Detener el procesamiento de la cola?\n\nLas descargas en curso se completarán." \
+              --width=300; then
+        
+        "$HOME/.local/bin/download-queue-manager" stop
+        
+        notify_gui "⏹️ Cola Detenida" "El procesamiento de la cola se ha detenido"
+        zenity --info --title="Éxito" \
+               --text="Cola de descarga detenida."
+    fi
+}
+
+# Limpiar cola GUI
+clean_queue_gui() {
+    local days
+    days=$(zenity --entry \
+                  --title="Limpiar Cola" \
+                  --text="¿Cuántos días de antigüedad para limpiar?" \
+                  --entry-text="7" 2>/dev/null)
+    
+    if [[ -n "$days" ]] && [[ "$days" =~ ^[0-9]+$ ]]; then
+        "$HOME/.local/bin/download-queue-manager" clean "$days"
+        zenity --info --title="Éxito" \
+               --text="Cola limpiada. Archivos más antiguos de $days días han sido eliminados."
+    fi
+}
+
+# Diálogo de configuración
+show_settings_dialog() {
+    local current_quality="${DEFAULT_QUALITY:-best[height<=1080]/best}"
+    local current_dir="${DOWNLOAD_DIR:-$HOME/Descargas/Videos}"
+    local current_concurrent="${MAX_CONCURRENT_DOWNLOADS:-3}"
+    
+    local settings
+    settings=$(zenity --forms \
+                      --title="⚙️ Configuración" \
+                      --text="Configuración del sistema:" \
+                      --add-entry="Directorio de descarga:" \
+                      --add-combo="Calidad por defecto:" \
+                      --combo-values="best[height<=1080]/best|best[height<=720]/best|best[height<=480]/best|bestaudio/best" \
+                      --add-entry="Descargas concurrentes:" \
+                      --add-combo="Notificaciones:" \
+                      --combo-values="true|false" \
+                      --add-combo="Actualización automática:" \
+                      --combo-values="true|false" \
+                      --separator="|" \
+                      --width=500 2>/dev/null)
+    
+    if [[ -n "$settings" ]]; then
+        IFS='|' read -r new_dir new_quality new_concurrent new_notifications new_auto_update <<< "$settings"
+        
+        # Actualizar archivo de configuración
+        sed -i "s|DOWNLOAD_DIR=.*|DOWNLOAD_DIR=\"$new_dir\"|" "$CONFIG_DIR/config.conf"
+        sed -i "s|DEFAULT_QUALITY=.*|DEFAULT_QUALITY=\"$new_quality\"|" "$CONFIG_DIR/config.conf"
+        sed -i "s|MAX_CONCURRENT_DOWNLOADS=.*|MAX_CONCURRENT_DOWNLOADS=$new_concurrent|" "$CONFIG_DIR/config.conf"
+        sed -i "s|NOTIFICATIONS_ENABLED=.*|NOTIFICATIONS_ENABLED=$new_notifications|" "$CONFIG_DIR/config.conf"
+        sed -i "s|AUTO_UPDATE_YTDLP=.*|AUTO_UPDATE_YTDLP=$new_auto_update|" "$CONFIG_DIR/config.conf"
+        
+        zenity --info --title="Éxito" \
+               --text="Configuración guardada exitosamente."
+    fi
+}
+
+# Mostrar estadísticas
+show_statistics() {
+    local stats_text="📊 Estadísticas de Descarga\n\n"
+    
+    # Contar archivos por plataforma
+    local tiktok_count=$(find "$DOWNLOAD_DIR/TikTok" -name "*.mp4" 2>/dev/null | wc -l)
+    local youtube_count=$(find "$DOWNLOAD_DIR/YouTube" -name "*.mp4" -o -name "*.webm" 2>/dev/null | wc -l)
+    local instagram_count=$(find "$DOWNLOAD_DIR/Instagram" -name "*.mp4" 2>/dev/null | wc -l)
+    local otros_count=$(find "$DOWNLOAD_DIR/Otros" -type f 2>/dev/null | wc -l)
+    
+    stats_text+="🎵 TikTok: $tiktok_count videos\n"
+    stats_text+="🎬 YouTube: $youtube_count videos\n"
+    stats_text+="📷 Instagram: $instagram_count videos\n"
+    stats_text+="🌐 Otros: $otros_count archivos\n\n"
+    
+    # Espacio usado
+    local total_size=$(du -sh "$DOWNLOAD_DIR" 2>/dev/null | cut -f1 || echo "N/A")
+    stats_text+="💾 Espacio usado: $total_size\n\n"
+    
+    # Estado de la cola
+    local queue_stats=$("$HOME/.local/bin/download-queue-manager" status 2>/dev/null | grep -E "(Pendientes|Descargando|Completados|Fallidos)" || echo "Cola no disponible")
+    stats_text+="📁 Estado de la Cola:\n$queue_stats"
+    
+    zenity --info --title="📊 Estadísticas" \
+           --text="$stats_text" \
+           --width=400 --height=300
+}
+
+# Compartir en redes sociales
+show_social_sharing() {
+    local message
+    message=$(zenity --entry \
+                     --title="📱 Compartir en Redes Sociales" \
+                     --text="Mensaje para compartir:" \
+                     --entry-text="¡Acabo de descargar un video con Video Downloader! #VideoDownloader #YTdlp" \
+                     --width=500 2>/dev/null)
+    
+    if [[ -n "$message" ]]; then
+        local platform
+        platform=$(zenity --list \
+                          --title="Seleccionar Plataforma" \
+                          --text="¿Dónde quieres compartir?" \
+                          --column="Plataforma" \
+                          "Twitter" \
+                          "Telegram" \
+                          "Discord" \
+                          "Copiar al Portapapeles" 2>/dev/null)
+        
+        case "$platform" in
+            "Twitter")
+                local twitter_url="https://twitter.com/intent/tweet?text=$(echo "$message" | jq -rR @uri)"
+                xdg-open "$twitter_url" 2>/dev/null
+                ;;
+            "Telegram")
+                local telegram_url="https://t.me/share/url?url=&text=$(echo "$message" | jq -rR @uri)"
+                xdg-open "$telegram_url" 2>/dev/null
+                ;;
+            "Discord")
+                zenity --info --title="Discord" \
+                       --text="Copia el mensaje manualmente a Discord:\n\n$message"
+                ;;
+            "Copiar al Portapapeles")
+                echo "$message" | xclip -selection clipboard 2>/dev/null || echo "$message" | pbcopy 2>/dev/null
+                zenity --info --title="Éxito" \
+                       --text="Mensaje copiado al portapapeles."
+                ;;
+        esac
+    fi
+}
+
+# Menú de herramientas
+show_tools_menu() {
+    while true; do
+        local choice
+        choice=$(zenity --list \
+                        --title="🔧 Herramientas" \
+                        --text="Herramientas adicionales:" \
+                        --column="Herramienta" --column="Descripción" \
+                        --width=500 --height=300 \
+                        "Actualizar Sistema" "Actualizar yt-dlp y componentes" \
+                        "Backup Configuración" "Crear backup de la configuración" \
+                        "Restaurar Backup" "Restaurar configuración desde backup" \
+                        "Limpiar Cache" "Limpiar archivos temporales" \
+                        "Ver Logs" "Ver registros del sistema" \
+                        "Volver" "Regresar al menú principal" 2>/dev/null)
+        
+        case "$choice" in
+            "Actualizar Sistema")
+                update_system_gui
+                ;;
+            "Backup Configuración")
+                backup_configuration_gui
+                ;;
+            "Restaurar Backup")
+                restore_backup_gui
+                ;;
+            "Limpiar Cache")
+                clean_cache_gui
+                ;;
+            "Ver Logs")
+                view_logs_gui
+                ;;
+            "Volver"|"")
+                break
+                ;;
+        esac
+    done
+}
+
+# Actualizar sistema GUI
+update_system_gui() {
+    (
+        echo "# Actualizando yt-dlp..."
+        echo "25"
+        
+        yt-dlp --update 2>/dev/null
+        
+        echo "# Verificando actualizaciones del sistema..."
+        echo "50"
+        
+        # Ejecutar script de actualización
+        "$HOME/.local/bin/video-downloader-update" >/dev/null 2>&1
+        
+        echo "# Limpiando archivos temporales..."
+        echo "75"
+        
+        rm -rf "$TEMP_DIR"/* 2>/dev/null
+        
+        echo "# ¡Actualización completada!"
+        echo "100"
+        
+        sleep 2
+    ) | zenity --progress \
+               --title="Actualizando Sistema" \
+               --text="Procesando..." \
+               --width=400 \
+               --auto-close
+    
+    zenity --info --title="Éxito" \
+           --text="Sistema actualizado exitosamente."
+}
+
+# Backup de configuración GUI
+backup_configuration_gui() {
+    local backup_file="$CONFIG_DIR/backups/config_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+    
+    (
+        echo "# Creando backup de configuración..."
+        echo "50"
+        
+        mkdir -p "$CONFIG_DIR/backups"
+        tar -czf "$backup_file" -C "$CONFIG_DIR" config.conf 2>/dev/null
+        
+        echo "# Backup completado"
+        echo "100"
+        
+        sleep 1
+    ) | zenity --progress \
+               --title="Creando Backup" \
+               --text="Procesando..." \
+               --width=300 \
+               --auto-close
+    
+    zenity --info --title="Éxito" \
+           --text="Backup creado exitosamente:\n\n$backup_file"
+}
+
+# Restaurar backup GUI
+restore_backup_gui() {
+    local backup_file
+    backup_file=$(zenity --file-selection \
+                         --title="Seleccionar Backup" \
+                         --filename="$CONFIG_DIR/backups/" \
+                         --file-filter="Backups (*.tar.gz) | *.tar.gz" 2>/dev/null)
+    
+    if [[ -n "$backup_file" ]] && [[ -f "$backup_file" ]]; then
+        if zenity --question \
+                  --title="Confirmar Restauración" \
+                  --text="¿Restaurar la configuración desde el backup seleccionado?\n\nEsto sobrescribirá la configuración actual." \
+                  --width=400; then
+            
+            tar -xzf "$backup_file" -C "$CONFIG_DIR" 2>/dev/null
+            
+            zenity --info --title="Éxito" \
+                   --text="Configuración restaurada exitosamente."
+        fi
+    fi
+}
+
+# Limpiar cache GUI
+clean_cache_gui() {
+    if zenity --question \
+              --title="Limpiar Cache" \
+              --text="¿Limpiar todos los archivos temporales y cache?" \
+              --width=300; then
+        
+        rm -rf "$TEMP_DIR"/* 2>/dev/null
+        rm -rf "$HOME/.cache/video-downloader"/* 2>/dev/null
+        
+        zenity --info --title="Éxito" \
+               --text="Cache limpiado exitosamente."
+    fi
+}
+
+# Ver logs GUI
+view_logs_gui() {
+    local log_content
+    if [[ -f "$CONFIG_DIR/logs/queue.log" ]]; then
+        log_content=$(tail -n 100 "$CONFIG_DIR/logs/queue.log" 2>/dev/null || echo "No hay logs disponibles")
+    else
+        log_content="No hay logs disponibles"
+    fi
+    
+    zenity --text-info \
+           --title="📜 Logs del Sistema" \
+           --filename=<(echo "$log_content") \
+           --width=700 --height=500 2>/dev/null
+}
+
+# Diálogo "Acerca de"
+show_about_dialog() {
+    local about_text="🎬 Descargador Universal de Videos v3.0\n\n"
+    about_text+="📦 Desarrollado por: DreamCoder08\n"
+    about_text+="📅 Fecha: 2025-06-14\n"
+    about_text+="🖥️ Sistema: Arch Linux\n\n"
+    about_text+="🎥 Características:\n"
+    about_text+="• Descarga de múltiples plataformas\n"
+    about_text+="• Interfaz gráfica con Zenity\n"
+    about_text+="• Sistema de colas de descarga\n"
+    about_text+="• Notificaciones de escritorio\n"
+    about_text+="• Backup automático de configuración\n"
+    about_text+="• Integración con redes sociales\n\n"
+    about_text+="🔒 100% Seguro - Sin virus ni malware\n"
+    about_text+="🌐 Basado en yt-dlp (código abierto)\n\n"
+    about_text+="⚠️ Usa responsablemente respetando los términos de servicio"
+    
+    zenity --info --title="Acerca de" \
+           --text="$about_text" \
+           --width=500 --height=400
+}
+
+# Función principal
+main() {
+    # Verificar dependencias
+    check_dependencies
+    
+    # Configurar iconos
+    setup_icons
+    
+    # Crear directorios necesarios
+    mkdir -p "$DOWNLOAD_DIR" "$TEMP_DIR" "$CONFIG_DIR/logs" "$CONFIG_DIR/backups"
+    
+    # Mostrar ventana principal
+    show_main_window
+}
+
+# Ejecutar solo si se llama directamente
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

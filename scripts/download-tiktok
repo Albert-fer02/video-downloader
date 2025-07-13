@@ -1,0 +1,44 @@
+#!/bin/bash
+# Script para descargar videos de TikTok de forma segura
+# Uso: download-tiktok "URL"
+
+set -euo pipefail
+
+# Verificar que se proporcione una URL
+if [ $# -eq 0 ]; then
+    echo "❌ Error: Debes proporcionar una URL de TikTok"
+    echo "💡 Uso: download-tiktok 'https://www.tiktok.com/@usuario/video/ID'"
+    exit 1
+fi
+
+URL="$1"
+
+# Verificar que la URL sea de TikTok
+if [[ ! "$URL" =~ tiktok\.com ]]; then
+    echo "❌ Error: La URL no parece ser de TikTok"
+    exit 1
+fi
+
+echo "🎵 Descargando video de TikTok..."
+echo "📋 URL: $URL"
+
+# Crear directorio específico para TikTok si no existe
+mkdir -p ~/Descargas/Videos/TikTok
+
+# Descargar con configuración específica para TikTok
+yt-dlp \
+    --output "~/Descargas/Videos/TikTok/%(uploader)s_%(upload_date)s_%(title)s.%(ext)s" \
+    --format "best[height<=1080]/best" \
+    --write-info-json \
+    --write-thumbnail \
+    --embed-metadata \
+    --restrict-filenames \
+    --no-overwrites \
+    "$URL"
+
+echo "✅ ¡Descarga completada! Los archivos están en ~/Descargas/Videos/TikTok/"
+
+# Mostrar archivos descargados
+echo "📁 Archivos descargados:"
+ls -la ~/Descargas/Videos/TikTok/ | tail -5
+
