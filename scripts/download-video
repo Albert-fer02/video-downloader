@@ -34,7 +34,7 @@ show_help() {
     echo "  -i, --info     Solo mostrar información del video"
     echo "  -a, --audio    Descargar solo audio"
     echo "  -q, --quality  Especificar calidad (best, worst, 720p, 480p, etc.)"
-  -o, --output   Especificar directorio de salida
+  #  -o, --output   Especificar directorio de salida
     echo ""
     echo -e "${YELLOW}Ejemplos:${NC}"
     echo "  download-video 'https://www.tiktok.com/@user/video/123456'"

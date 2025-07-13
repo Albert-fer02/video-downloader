@@ -1,4 +1,3 @@
-
 ---
 ## 🏆 Créditos y Agradecimientos
 
@@ -28,6 +27,7 @@
 ## 🔮 Roadmap Futuro (v4.0)
 
 ### 🚀 Características Planificadas
+
 - 🌐 **Interfaz Web**: Panel de control vía navegador
 - 🐳 **Soporte Docker**: Containerización completa
 - 🤖 **Integración IA**: Detección automática de contenido
@@ -38,6 +38,7 @@
 - 🔄 **Actualizaciones Automáticas**: Actualizaciones automáticas sin intervención
 
 ### 🎯 Mejoras Técnicas
+
 - 🚀 **Rendimiento**: Optimización de velocidad
 - 🔒 **Seguridad**: Mejoras de seguridad
 - 🎨 **UI/UX**: Interfaz más moderna
@@ -54,4 +55,5 @@
 
 **🎉 ¡Disfruta descargando videos de forma segura y profesional con Video Downloader v3.0!**
 
-*Desarrollado con ❤️ por DreamCoder08 para la comunidad de Arch Linux*
+_Desarrollado con ❤️ por DreamCoder08 para la comunidad de Arch Linux_
+
