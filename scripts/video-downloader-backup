@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Sistema de Backup Automático para Video Downloader v3.0
 # Autor: DreamCoder08
 

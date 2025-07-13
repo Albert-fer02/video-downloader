@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Gestor de Colas de Descarga - Video Downloader v3.0
 # Autor: DreamCoder08
 

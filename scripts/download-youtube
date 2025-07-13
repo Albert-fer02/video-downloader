@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Script para descargar videos de YouTube de forma segura
 # Uso: download-youtube "URL"
 

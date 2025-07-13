@@ -1,8 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Script de mantenimiento para el descargador de videos
 # Actualiza yt-dlp y verifica la seguridad del sistema
 
 set -euo pipefail
+
+# Configuración
+CONFIG_DIR="$HOME/.config/video-downloader"
+
+# Cargar configuración
+# Se espera que DOWNLOAD_DIR esté definido en config.conf
+source "$CONFIG_DIR/config.conf" 2>/dev/null || true
 
 # Colores
 RED='\033[0;31m'
@@ -19,9 +26,9 @@ echo ""
 echo -e "${YELLOW}📦 Actualizando yt-dlp...${NC}"
 if command -v yt-dlp &> /dev/null; then
     yt-dlp --update
-    echo -e "${GREEN}✅ yt-dlp actualizado${NC}"
+    echo -e "${GREEN}✅ yt-dlp actualizado ${NC}"
 else
-    echo -e "${RED}❌ yt-dlp no está instalado${NC}"
+    echo -e "${RED}❌ yt-dlp no está instalado ${NC}"
     echo -e "${YELLOW}💡 Ejecuta: sudo pacman -S yt-dlp${NC}"
 fi
 
@@ -30,9 +37,9 @@ echo ""
 # Verificar FFmpeg
 echo -e "${YELLOW}🎬 Verificando FFmpeg...${NC}"
 if command -v ffmpeg &> /dev/null; then
-    echo -e "${GREEN}✅ FFmpeg disponible ${NC}"
+    echo -e "${GREEN}✅ FFmpeg disponible  ${NC}"
 else
-    echo -e "${RED}❌ FFmpeg no está instalado${NC}"
+    echo -e "${RED}❌ FFmpeg no está instalado ${NC}"
     echo -e "${YELLOW}💡 Ejecuta: sudo pacman -S ffmpeg${NC}"
 fi
 
@@ -40,7 +47,8 @@ echo ""
 
 # Verificar espacio en disco
 echo -e "${YELLOW}💾 Verificando espacio disponible...${NC}"
-DISK_USAGE=$(df -P /home/dreamcoder08/Descargas/Videos 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
+# Asegúrate de que DOWNLOAD_DIR esté definido en config.conf
+DISK_USAGE=$(df -P "$DOWNLOAD_DIR" 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
 if [ "$DISK_USAGE" -gt 80 ]; then
     echo -e "${RED}⚠️  Advertencia: Disco casi lleno (${DISK_USAGE}% usado)${NC}"
     echo -e "${YELLOW}💡 Considera limpiar archivos antiguos${NC}"
@@ -52,20 +60,19 @@ echo ""
 
 # Limpiar archivos temporales
 echo -e "${YELLOW}🧹 Limpiando archivos temporales...${NC}"
-find ~/Descargas/Videos -name "*.temp" -type f -delete 2>/dev/null || true
-find ~/Descargas/Videos -name "*.ytdl" -type f -delete 2>/dev/null || true
-find ~/Descargas/Videos -name "*.part" -type f -mtime +1 -delete 2>/dev/null || true
-echo -e "${GREEN}✅ Limpieza completada${NC}"
+find "$DOWNLOAD_DIR" -name "*.temp" -type f -delete 2>/dev/null || true
+find "$DOWNLOAD_DIR" -name "*.ytdl" -type f -delete 2>/dev/null || true
+find "$DOWNLOAD_DIR" -name "*.part" -type f -mtime +1 -delete 2>/dev/null || true
+echo -e "${GREEN}✅ Limpieza completada ${NC}"
 
 echo ""
 
 # Mostrar estadísticas
 echo -e "${BLUE}📊 Estadísticas de descarga:${NC}"
-echo -e "${YELLOW}TikTok:${NC} $(find ~/Descargas/Videos/TikTok -name "*.mp4" 2>/dev/null | wc -l) videos"
-echo -e "${YELLOW}YouTube:${NC} $(find ~/Descargas/Videos/YouTube -name "*.mp4" -o -name "*.webm" 2>/dev/null | wc -l) videos"
-echo -e "${YELLOW}Instagram:${NC} $(find ~/Descargas/Videos/Instagram -name "*.mp4" 2>/dev/null | wc -l) videos"
-echo -e "${YELLOW}Otros:${NC} $(find ~/Descargas/Videos/Otros -type f 2>/dev/null | wc -l) archivos"
+echo -e "${YELLOW}TikTok:${NC} $(find "$DOWNLOAD_DIR/TikTok" -name "*.mp4" 2>/dev/null | wc -l) videos"
+echo -e "${YELLOW}YouTube:${NC} $(find "$DOWNLOAD_DIR/YouTube" \( -name "*.mp4" -o -name "*.webm" \) 2>/dev/null | wc -l) videos"
+echo -e "${YELLOW}Instagram:${NC} $(find "$DOWNLOAD_DIR/Instagram" -name "*.mp4" 2>/dev/null | wc -l) videos"
+echo -e "${YELLOW}Otros:${NC} $(find "$DOWNLOAD_DIR/Otros" -type f 2>/dev/null | wc -l) archivos"
 
 echo ""
-echo -e "${GREEN}✅ Mantenimiento completado${NC}"
-
+echo -e "${GREEN}✅ Mantenimiento completado ${NC}"
